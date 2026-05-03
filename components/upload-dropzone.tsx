@@ -1,8 +1,7 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import * as tus from "tus-js-client";
 import { AlertCircle, CheckCircle2, FileAudio2, Loader2, UploadCloud } from "lucide-react";
 import {
   ACCEPTED_AUDIO_EXTENSIONS,
@@ -10,10 +9,42 @@ import {
   isSupportedAudioFile,
   MAX_UPLOAD_SIZE_BYTES,
   OPENAI_AUDIO_FILE_LIMIT_BYTES,
-  TARGET_UPLOAD_SIZE_BYTES,
 } from "@/lib/files";
 
 type UploadState = "idle" | "ready" | "uploading" | "success" | "error";
+
+type GoogleDriveFile = {
+  id: string;
+  name: string;
+  webViewLink?: string;
+  webContentLink?: string;
+  size?: string;
+  mimeType?: string;
+};
+
+type GoogleTokenClient = {
+  requestAccessToken: (options?: { prompt?: string }) => void;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: { access_token?: string; error?: string }) => void;
+          }) => GoogleTokenClient;
+        };
+      };
+    };
+  }
+}
+
+const GOOGLE_IDENTITY_SCRIPT_ID = "google-identity-services";
+const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
+const DRIVE_CHUNK_SIZE = 8 * 1024 * 1024;
 
 export function UploadDropzone() {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -22,6 +53,12 @@ export function UploadDropzone() {
   const [state, setState] = useState<UploadState>("idle");
   const [message, setMessage] = useState<string>("音声ファイルを選択またはドラッグ&ドロップ");
   const [progress, setProgress] = useState<number>(0);
+
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  const driveFolderId = process.env.NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID;
+  const isGoogleConfigured = Boolean(googleClientId);
+
+  const limitLabel = useMemo(() => formatBytes(MAX_UPLOAD_SIZE_BYTES), []);
 
   function selectFile(nextFile: File | null) {
     if (!nextFile) {
@@ -41,7 +78,7 @@ export function UploadDropzone() {
     if (nextFile.size > MAX_UPLOAD_SIZE_BYTES) {
       setFile(null);
       setState("error");
-      setMessage(`${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下の音声ファイルを選択してください。選択中: ${formatBytes(nextFile.size)}`);
+      setMessage(`${limitLabel}以下の音声ファイルを選択してください。選択中: ${formatBytes(nextFile.size)}`);
       return;
     }
 
@@ -58,54 +95,55 @@ export function UploadDropzone() {
       return;
     }
 
+    if (!googleClientId) {
+      setState("error");
+      setMessage("NEXT_PUBLIC_GOOGLE_CLIENT_ID が未設定です。Google DriveアップロードにはGoogle OAuth Client IDが必要です。");
+      return;
+    }
+
     setState("uploading");
-    setMessage("アップロード、文字起こし、要約を実行しています。大きな音声は少し時間がかかります。");
+    setProgress(0);
+    setMessage("Google Driveへアップロードしています。大きな音声は時間がかかります。");
 
     try {
-      const signed = await fetch("/api/uploads/sign", {
+      const accessToken = await requestGoogleAccessToken(googleClientId);
+      const driveFile = await uploadToGoogleDrive(file, accessToken, driveFolderId, setProgress);
+
+      setMessage("Google Driveアップロード完了。Notionへ履歴を保存しています。");
+      const recordResponse = await fetch("/api/transcripts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
+          originalFileName: file.name,
+          driveFileId: driveFile.id,
+          driveFileUrl: driveFile.webViewLink ?? `https://drive.google.com/file/d/${driveFile.id}/view`,
+          fileSizeBytes: file.size,
+          mimeType: file.type || driveFile.mimeType,
         }),
       });
-      const uploadConfig = (await readJsonResponse(signed)) as {
-        transcriptId?: string;
-        storagePath?: string;
-        token?: string;
-        projectId?: string;
-        bucketName?: string;
-        error?: string;
-      };
+      const recordResult = (await readJsonResponse(recordResponse)) as { transcript?: { id: string }; error?: string };
 
-      if (!signed.ok || !uploadConfig.transcriptId || !uploadConfig.storagePath || !uploadConfig.token || !uploadConfig.projectId || !uploadConfig.bucketName) {
-        throw new Error(uploadConfig.error ?? "アップロード準備に失敗しました。");
+      if (!recordResponse.ok || !recordResult.transcript?.id) {
+        throw new Error(recordResult.error ?? "Notionへの履歴保存に失敗しました。");
       }
 
-      const tusConfig = {
-        token: uploadConfig.token,
-        projectId: uploadConfig.projectId,
-        bucketName: uploadConfig.bucketName,
-        storagePath: uploadConfig.storagePath,
-      };
-
-      await uploadWithTus(file, tusConfig, setProgress);
-
       if (file.size <= OPENAI_AUDIO_FILE_LIMIT_BYTES) {
-        setMessage("アップロード完了。文字起こしと要約を実行しています。");
-        const processResponse = await fetch(`/api/transcripts/${uploadConfig.transcriptId}/process`, { method: "POST" });
+        setMessage("文字起こしと要約を実行しています。");
+        const processResponse = await fetch(`/api/transcripts/${recordResult.transcript.id}/process`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken }),
+        });
         const processResult = (await readJsonResponse(processResponse)) as { error?: string };
         if (!processResponse.ok) {
           throw new Error(processResult.error ?? "文字起こし処理に失敗しました。");
         }
       } else {
-        setMessage("アップロード完了。25MB超のため、分割処理ワーカーの対象として保存しました。");
+        setMessage("アップロード完了。25MB超のため、分割処理ワーカーの対象としてNotionに保存しました。");
       }
 
       setState("success");
-      router.push(`/transcripts/${uploadConfig.transcriptId}`);
+      router.push(`/transcripts/${recordResult.transcript.id}`);
       router.refresh();
     } catch (error) {
       setState("error");
@@ -162,10 +200,10 @@ export function UploadDropzone() {
           </div>
           <p className="mt-4 text-base font-semibold">{message}</p>
           <p className="mt-2 text-sm text-ink/60">
-            対応形式: mp3 / m4a / wav / mp4 / webm、最大{formatBytes(MAX_UPLOAD_SIZE_BYTES)}
+            対応形式: mp3 / m4a / wav / mp4 / webm、最大{limitLabel}
           </p>
-          {MAX_UPLOAD_SIZE_BYTES < TARGET_UPLOAD_SIZE_BYTES ? (
-            <p className="mt-2 text-xs text-coral">3GB対応にはSupabase Pro以上とStorage上限設定が必要です。</p>
+          {!isGoogleConfigured ? (
+            <p className="mt-2 text-xs text-coral">Google DriveアップロードにはOAuth Client IDの設定が必要です。</p>
           ) : null}
           {state === "uploading" ? (
             <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white">
@@ -183,10 +221,134 @@ export function UploadDropzone() {
         className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-leaf px-4 py-3 text-sm font-semibold text-white transition hover:bg-leaf/90 disabled:cursor-not-allowed disabled:bg-ink/30"
       >
         {state === "uploading" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <UploadCloud className="h-4 w-4" aria-hidden="true" />}
-        音声アップロード
+        Google Driveへアップロード
       </button>
     </div>
   );
+}
+
+async function requestGoogleAccessToken(clientId: string) {
+  await loadGoogleIdentityServices();
+
+  return new Promise<string>((resolve, reject) => {
+    const tokenClient = window.google?.accounts?.oauth2?.initTokenClient({
+      client_id: clientId,
+      scope: GOOGLE_DRIVE_SCOPE,
+      callback: (response) => {
+        if (response.error || !response.access_token) {
+          reject(new Error(response.error ?? "Google認証に失敗しました。"));
+          return;
+        }
+
+        resolve(response.access_token);
+      },
+    });
+
+    if (!tokenClient) {
+      reject(new Error("Google認証ライブラリを初期化できませんでした。"));
+      return;
+    }
+
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  });
+}
+
+function loadGoogleIdentityServices() {
+  return new Promise<void>((resolve, reject) => {
+    if (window.google?.accounts?.oauth2) {
+      resolve();
+      return;
+    }
+
+    const existing = document.getElementById(GOOGLE_IDENTITY_SCRIPT_ID);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Google認証ライブラリの読み込みに失敗しました。")), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = GOOGLE_IDENTITY_SCRIPT_ID;
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google認証ライブラリの読み込みに失敗しました。"));
+    document.head.appendChild(script);
+  });
+}
+
+async function uploadToGoogleDrive(
+  file: File,
+  accessToken: string,
+  folderId: string | undefined,
+  onProgress: (progress: number) => void,
+) {
+  const metadata: Record<string, unknown> = {
+    name: file.name,
+    mimeType: file.type || "application/octet-stream",
+  };
+
+  if (folderId) {
+    metadata.parents = [folderId];
+  }
+
+  const createResponse = await fetch(
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,webViewLink,webContentLink,size,mimeType",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Upload-Content-Type": file.type || "application/octet-stream",
+        "X-Upload-Content-Length": String(file.size),
+      },
+      body: JSON.stringify(metadata),
+    },
+  );
+
+  if (!createResponse.ok) {
+    throw new Error(`Google Driveアップロード開始に失敗しました。HTTP ${createResponse.status}`);
+  }
+
+  const uploadUrl = createResponse.headers.get("Location");
+  if (!uploadUrl) {
+    throw new Error("Google DriveのアップロードURLを取得できませんでした。");
+  }
+
+  let offset = 0;
+  while (offset < file.size) {
+    const end = Math.min(offset + DRIVE_CHUNK_SIZE, file.size);
+    const chunk = file.slice(offset, end);
+    const response = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(chunk.size),
+        "Content-Range": `bytes ${offset}-${end - 1}/${file.size}`,
+      },
+      body: chunk,
+    });
+
+    if (response.status === 308) {
+      offset = parseGoogleRange(response.headers.get("Range")) + 1 || end;
+      onProgress((offset / file.size) * 100);
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`Google Driveアップロードに失敗しました。HTTP ${response.status}`);
+    }
+
+    onProgress(100);
+    return (await response.json()) as GoogleDriveFile;
+  }
+
+  throw new Error("Google Driveアップロードの完了レスポンスを取得できませんでした。");
+}
+
+function parseGoogleRange(range: string | null) {
+  const match = range?.match(/bytes=0-(\d+)/);
+  return match ? Number(match[1]) : 0;
 }
 
 async function readJsonResponse(response: Response) {
@@ -205,62 +367,13 @@ async function readJsonResponse(response: Response) {
 function formatUploadError(error: unknown) {
   const message = error instanceof Error ? error.message : "アップロードに失敗しました。";
 
+  if (message.includes("403")) {
+    return "Google Driveへの権限が不足しています。Drive APIが有効か、OAuthスコープを確認してください。";
+  }
+
   if (message.includes("413") || message.toLowerCase().includes("maximum size exceeded")) {
-    return `Supabase Storageの現在上限を超えています。${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下にするか、SupabaseをPro以上にしてStorage上限を3GB以上に設定してください。`;
+    return `アップロード上限を超えています。${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下のファイルを選択してください。`;
   }
 
   return message;
-}
-
-function uploadWithTus(
-  file: File,
-  config: {
-    token: string;
-    projectId: string;
-    bucketName: string;
-    storagePath: string;
-  },
-  onProgress: (progress: number) => void,
-) {
-  return new Promise<void>((resolve, reject) => {
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!anonKey) {
-      reject(new Error("NEXT_PUBLIC_SUPABASE_ANON_KEY が設定されていません。"));
-      return;
-    }
-
-    const upload = new tus.Upload(file, {
-      endpoint: `https://${config.projectId}.storage.supabase.co/storage/v1/upload/resumable`,
-      retryDelays: [0, 3000, 5000, 10000, 20000],
-      headers: {
-        authorization: `Bearer ${anonKey}`,
-        "x-signature": config.token,
-      },
-      uploadDataDuringCreation: true,
-      removeFingerprintOnSuccess: true,
-      chunkSize: 6 * 1024 * 1024,
-      metadata: {
-        bucketName: config.bucketName,
-        objectName: config.storagePath,
-        contentType: file.type || "application/octet-stream",
-        cacheControl: "3600",
-      },
-      onError: reject,
-      onProgress(bytesUploaded, bytesTotal) {
-        onProgress((bytesUploaded / bytesTotal) * 100);
-      },
-      onSuccess() {
-        onProgress(100);
-        resolve();
-      },
-    });
-
-    upload.findPreviousUploads().then((previousUploads) => {
-      if (previousUploads.length) {
-        upload.resumeFromPreviousUpload(previousUploads[0]);
-      }
-
-      upload.start();
-    });
-  });
 }

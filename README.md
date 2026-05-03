@@ -1,24 +1,25 @@
 # mojioko
 
-PLAUD録音ファイルをアップロードして、AIで文字起こし・要約・議事録化するWeb Appです。Supabase Storageに音声を保存し、OpenAI Audio APIで文字起こし、GPTで要約・議事録・TODOを生成してSupabase Databaseに保存します。
+PLAUD録音ファイルをアップロードして、AIで文字起こし・要約・議事録化するWeb Appです。音声ファイルはGoogle Driveに保存し、履歴・要約・議事録・TODOはNotion Databaseで管理します。
 
 ## 技術構成
 
 - Next.js App Router
 - TypeScript
 - Tailwind CSS
-- Supabase Database
-- Supabase Storage
+- Google Drive API
+- Google Identity Services
+- Notion API
 - OpenAI Audio API / GPT
 - Vercel
 
 ## MVP機能
 
 - mp3 / m4a / wav / mp4 / webm のアップロード
-- Supabase TUS resumable upload による大容量アップロード
+- Google Drive resumable upload による最大3GBの大容量アップロード
 - ドラッグ&ドロップまたはファイル選択
-- Supabase Storage `audio-files` bucket への保存
-- `transcripts` テーブルへの履歴保存
+- Google Driveへの音声保存
+- Notion Databaseへの履歴保存
 - 25MB以下の音声はOpenAI `gpt-4o-mini-transcribe` による文字起こし
 - GPTによる日本語の要約・議事録・TODO抽出
 - `/transcripts` の履歴一覧
@@ -40,48 +41,73 @@ npm run dev
 
 ```bash
 OPENAI_API_KEY=
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES=
+NEXT_PUBLIC_GOOGLE_CLIENT_ID=
+NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID=
+NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES=3221225472
+NOTION_TOKEN=
+NOTION_DATABASE_ID=
 ```
 
-`SUPABASE_SERVICE_ROLE_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
+`NOTION_TOKEN` と `OPENAI_API_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
 
-## Supabase設定
+## Google Drive設定
 
-対象プロジェクト:
+3GB音声ファイルはGoogle Driveに保存します。
 
-https://supabase.com/dashboard/project/culbricxbybfrkeqxllc
+1. Google Cloud Consoleでプロジェクトを作成します。
+2. Google Drive APIを有効化します。
+3. OAuth同意画面を設定します。
+4. Web ApplicationのOAuth Client IDを作成します。
+5. Authorized JavaScript originsにローカルと本番URLを追加します。
+   - `http://localhost:3000`
+   - `https://mojioko-v1.vercel.app`
+6. Client IDを `NEXT_PUBLIC_GOOGLE_CLIENT_ID` に設定します。
+7. 保存先フォルダを固定したい場合はGoogle DriveフォルダIDを `NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID` に設定します。
 
-### Storage bucket
+Google Driveは通常ファイルを最大5TBまで保存できます。Drive APIのresumable uploadを使うため、Vercel Functionのリクエストサイズ制限を回避できます。
 
-Supabase Dashboardで Storage bucket を作成します。
+## Notion設定
 
-- Bucket name: `audio-files`
-- Public bucket: 詳細ページから元音声を開きたい場合はON
-- File size limit: `3GB` 以上
+履歴・要約・議事録・TODOはNotion Databaseに保存します。
 
-3GBの録音ファイルを扱う場合、SupabaseプロジェクトはPro以上が必要です。FreeプランのStorage上限では3GBファイルを保存できません。Freeプランで動かす場合は、Vercelの `NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES` を `52428800` に設定してください。Pro以上に変更した後は `3221225472` に変更して再デプロイすると3GB表示になります。
+1. NotionでDatabaseを作成します。
+2. Notion Integrationを作成し、Internal Integration Tokenを取得します。
+3. DatabaseをIntegrationに共有します。
+4. Database IDを `NOTION_DATABASE_ID` に設定します。
+5. Integration Tokenを `NOTION_TOKEN` に設定します。
 
-Private bucketで運用する場合は、詳細ページの元音声リンクを署名付きURLに変更してください。
+アプリは初回保存時に以下のプロパティをDatabaseへ追加します。
 
-### 大容量ファイルの処理方針
+- `Status`
+- `Original File Name`
+- `Drive File ID`
+- `Drive File URL`
+- `File Size Bytes`
+- `Transcript Text`
+- `Summary`
+- `Minutes`
+- `TODO`
 
-Vercel Functionはリクエスト本文サイズの上限があるため、音声ファイルはNext.js APIを経由せず、ブラウザからSupabase StorageへTUS resumable uploadで直接送信します。
+## 旧Supabase設定
+
+Supabase Storage / Databaseは現在の本線から外しました。過去のMVP SQLは `supabase/transcripts.sql` に残しています。
+
+## 大容量ファイルの処理方針
+
+Vercel Functionはリクエスト本文サイズの上限があるため、音声ファイルはNext.js APIを経由せず、ブラウザからGoogle Driveへresumable uploadで直接送信します。
 
 OpenAI Audio APIは1回の音声ファイルアップロードが25MBまでのため、25MBを超える録音はアップロード後に `uploaded` のまま保存されます。3時間公演などの大容量音声を文字起こしするには、別途ワーカーで以下の処理を追加してください。
 
-1. Supabase Storageから音声を取得
+1. Google Driveから音声を取得
 2. ffmpegで音声を圧縮または25MB未満のチャンクへ分割
 3. 各チャンクをOpenAI Audio APIで文字起こし
 4. チャンク結果を結合
 5. 要約・議事録・TODOを生成
-6. `transcripts` テーブルを `completed` に更新
+6. Notionページを `completed` に更新
 
-### Database SQL
+### 旧Database SQL
 
-Supabase SQL Editorで以下を実行します。同じSQLは `supabase/transcripts.sql` にも置いています。
+Supabase版へ戻す場合のみ使います。同じSQLは `supabase/transcripts.sql` にも置いています。
 
 ```sql
 create table if not exists transcripts (
@@ -136,15 +162,15 @@ https://vercel.com/dawg2004s-projects/mojioko-v1
 1. GitHubリポジトリ `https://github.com/dawg2004/mojioko_v1` をVercelプロジェクトに接続します。
 2. Vercel Project Settings の Environment Variables に `.env.local.example` と同じキーを設定します。
 3. Build Command は `npm run build`、Install Command は `npm install`、Output Directory は `.next` で動作します。リポジトリの `vercel.json` でも同じ設定を明示しています。
-4. デプロイ後、SupabaseのURLとStorage bucket設定を確認します。
+4. デプロイ後、Google Drive OAuthとNotion Databaseの設定を確認します。
 
-音声が長い場合、Vercel Functionの実行時間制限に達する可能性があります。MVPでは同期処理ですが、本番運用ではキュー、Webhook、Supabase Edge Functions、またはバックグラウンドジョブへの分離を推奨します。
+25MB以下の音声は同期処理で文字起こしします。25MB超の長時間音声は、Google Drive上のファイルをバックグラウンドワーカーで分割処理する構成を推奨します。
 
 ## 今後の追加予定
 
 - 話者分離
-- Notion連携
-- Google Drive連携
+- Google Drive音声分割ワーカー
+- Notionテンプレート連携
 - PLAUDファイル一括アップロード
 - フォルダ監視
 - 検索機能

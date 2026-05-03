@@ -1,16 +1,12 @@
 import Link from "next/link";
 import { CalendarDays, ChevronRight, FileAudio2 } from "lucide-react";
-import { getServerSupabase } from "@/lib/supabase/server";
 import { StatusBadge } from "@/components/status-badge";
+import { listNotionTranscripts } from "@/lib/notion/transcripts";
 
 export const dynamic = "force-dynamic";
 
 export default async function TranscriptsPage() {
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase
-    .from("transcripts")
-    .select("id,title,original_file_name,status,created_at")
-    .order("created_at", { ascending: false });
+  const result = await listTranscriptsSafely();
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -24,13 +20,13 @@ export default async function TranscriptsPage() {
         </Link>
       </div>
 
-      {error ? (
+      {result.error ? (
         <div className="rounded-lg border border-coral/30 bg-coral/10 p-4 text-sm text-coral">
-          履歴の取得に失敗しました: {error.message}
+          履歴の取得に失敗しました: {result.error}
         </div>
       ) : null}
 
-      {!error && data?.length === 0 ? (
+      {!result.error && result.data.length === 0 ? (
         <div className="rounded-lg border border-dashed border-ink/20 bg-white p-8 text-center">
           <FileAudio2 className="mx-auto h-10 w-10 text-leaf" aria-hidden="true" />
           <p className="mt-3 font-semibold">まだ録音がありません</p>
@@ -39,7 +35,7 @@ export default async function TranscriptsPage() {
       ) : null}
 
       <div className="grid gap-3">
-        {data?.map((item) => (
+        {result.data.map((item) => (
           <Link
             key={item.id}
             href={`/transcripts/${item.id}`}
@@ -64,6 +60,14 @@ export default async function TranscriptsPage() {
       </div>
     </main>
   );
+}
+
+async function listTranscriptsSafely() {
+  try {
+    return { data: await listNotionTranscripts(), error: null as string | null };
+  } catch (error) {
+    return { data: [], error: error instanceof Error ? error.message : "Notionから履歴を取得できませんでした。" };
+  }
 }
 
 function formatDate(value: string | null) {

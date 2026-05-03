@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Download } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { TranscriptTabs } from "@/components/transcript-tabs";
-import { getServerSupabase } from "@/lib/supabase/server";
+import { getNotionTranscript } from "@/lib/notion/transcripts";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -13,10 +13,9 @@ export const dynamic = "force-dynamic";
 
 export default async function TranscriptDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const supabase = getServerSupabase();
-  const { data, error } = await supabase.from("transcripts").select("*").eq("id", id).single();
+  const data = await getNotionTranscript(id);
 
-  if (error || !data) {
+  if (!data) {
     notFound();
   }
 

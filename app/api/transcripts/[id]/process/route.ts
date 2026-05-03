@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getServerSupabase } from "@/lib/supabase/server";
+import { generateNotes, transcribeAudio } from "@/lib/openai/transcription";
 import { OPENAI_AUDIO_FILE_LIMIT_BYTES, formatBytes } from "@/lib/files";
-import { processTranscript } from "@/lib/transcripts/process";
+import { getNotionTranscript, updateNotionTranscript } from "@/lib/notion/transcripts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -10,39 +10,96 @@ type RouteProps = {
   params: Promise<{ id: string }>;
 };
 
-export async function POST(_request: Request, { params }: RouteProps) {
+type ProcessRequest = {
+  accessToken?: string;
+};
+
+export async function POST(request: Request, { params }: RouteProps) {
   const { id } = await params;
 
   try {
-    const supabase = getServerSupabase();
-    const { data, error } = await supabase
-      .from("transcripts")
-      .select("id,storage_path,original_file_name,file_size_bytes")
-      .eq("id", id)
-      .single();
+    const body = (await request.json()) as ProcessRequest;
+    const accessToken = body.accessToken?.trim();
+    const transcript = await getNotionTranscript(id);
 
-    if (error || !data) {
+    if (!transcript) {
       return NextResponse.json({ error: "録音履歴が見つかりません。" }, { status: 404 });
     }
 
-    if (!data.storage_path || !data.original_file_name) {
-      return NextResponse.json({ error: "Storage上の音声ファイル情報が不足しています。" }, { status: 400 });
+    if (!accessToken) {
+      return NextResponse.json({ error: "Google Driveアクセストークンがありません。" }, { status: 400 });
     }
 
-    if (Number(data.file_size_bytes ?? 0) > OPENAI_AUDIO_FILE_LIMIT_BYTES) {
+    if (!transcript.storage_path || !transcript.original_file_name) {
+      return NextResponse.json({ error: "Google Driveファイル情報が不足しています。" }, { status: 400 });
+    }
+
+    if (Number(transcript.file_size_bytes ?? 0) > OPENAI_AUDIO_FILE_LIMIT_BYTES) {
+      await updateNotionTranscript(id, { status: "uploaded" });
       return NextResponse.json(
         {
           skipped: true,
-          message: `${formatBytes(Number(data.file_size_bytes))} のファイルはOpenAI Audio APIの1回25MB制限を超えるため、分割処理ワーカーが必要です。`,
+          message: `${formatBytes(Number(transcript.file_size_bytes))} のファイルはOpenAI Audio APIの1回25MB制限を超えるため、分割処理ワーカーが必要です。`,
         },
         { status: 202 },
       );
     }
 
-    await processTranscript(id, data.storage_path, data.original_file_name);
-    return NextResponse.json({ id });
+    await updateNotionTranscript(id, { status: "transcribing" });
+    const audioFile = await downloadDriveFile({
+      fileId: transcript.storage_path,
+      accessToken,
+      fileName: transcript.original_file_name,
+    });
+    const transcriptText = await transcribeAudio(audioFile);
+
+    await updateNotionTranscript(id, {
+      status: "summarizing",
+      transcriptText,
+    });
+
+    const notes = await generateNotes(transcriptText);
+    const updated = await updateNotionTranscript(id, {
+      status: "completed",
+      transcriptText,
+      summary: notes.summary,
+      minutes: notes.minutes,
+      todos: notes.todos,
+    });
+
+    return NextResponse.json({ transcript: updated });
   } catch (error) {
+    await updateNotionTranscript(id, {
+      status: "failed",
+      summary: error instanceof Error ? error.message : "文字起こし処理に失敗しました。",
+    }).catch(() => null);
+
     const message = error instanceof Error ? error.message : "文字起こし処理に失敗しました。";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+async function downloadDriveFile({
+  fileId,
+  accessToken,
+  fileName,
+}: {
+  fileId: string;
+  accessToken: string;
+  fileName: string;
+}) {
+  const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google Driveから音声を取得できませんでした。HTTP ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return new File([arrayBuffer], fileName, {
+    type: response.headers.get("content-type") ?? "application/octet-stream",
+  });
 }
