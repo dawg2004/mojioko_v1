@@ -15,10 +15,11 @@ PLAUD録音ファイルをアップロードして、AIで文字起こし・要�
 ## MVP機能
 
 - mp3 / m4a / wav / mp4 / webm のアップロード
+- Supabase TUS resumable upload による最大3GBの大容量アップロード
 - ドラッグ&ドロップまたはファイル選択
 - Supabase Storage `audio-files` bucket への保存
 - `transcripts` テーブルへの履歴保存
-- OpenAI `gpt-4o-mini-transcribe` による文字起こし
+- 25MB以下の音声はOpenAI `gpt-4o-mini-transcribe` による文字起こし
 - GPTによる日本語の要約・議事録・TODO抽出
 - `/transcripts` の履歴一覧
 - `/transcripts/[id]` の詳細表示、タブ切り替え、コピー、元音声リンク
@@ -58,8 +59,24 @@ Supabase Dashboardで Storage bucket を作成します。
 
 - Bucket name: `audio-files`
 - Public bucket: 詳細ページから元音声を開きたい場合はON
+- File size limit: `3GB` 以上
+
+3GBの録音ファイルを扱う場合、SupabaseプロジェクトはPro以上を推奨します。FreeプランのStorage上限では3GBファイルを保存できません。
 
 Private bucketで運用する場合は、詳細ページの元音声リンクを署名付きURLに変更してください。
+
+### 大容量ファイルの処理方針
+
+Vercel Functionはリクエスト本文サイズの上限があるため、音声ファイルはNext.js APIを経由せず、ブラウザからSupabase StorageへTUS resumable uploadで直接送信します。
+
+OpenAI Audio APIは1回の音声ファイルアップロードが25MBまでのため、25MBを超える録音はアップロード後に `uploaded` のまま保存されます。3時間公演などの大容量音声を文字起こしするには、別途ワーカーで以下の処理を追加してください。
+
+1. Supabase Storageから音声を取得
+2. ffmpegで音声を圧縮または25MB未満のチャンクへ分割
+3. 各チャンクをOpenAI Audio APIで文字起こし
+4. チャンク結果を結合
+5. 要約・議事録・TODOを生成
+6. `transcripts` テーブルを `completed` に更新
 
 ### Database SQL
 
@@ -71,6 +88,8 @@ create table if not exists transcripts (
   title text,
   original_file_name text,
   original_file_url text,
+  storage_path text,
+  file_size_bytes bigint,
   transcript_text text,
   summary text,
   minutes text,
@@ -85,6 +104,12 @@ on transcripts (created_at desc);
 
 create index if not exists transcripts_status_idx
 on transcripts (status);
+
+alter table transcripts
+add column if not exists storage_path text;
+
+alter table transcripts
+add column if not exists file_size_bytes bigint;
 
 create or replace function set_updated_at()
 returns trigger as $$

@@ -3,6 +3,8 @@ create table if not exists transcripts (
   title text,
   original_file_name text,
   original_file_url text,
+  storage_path text,
+  file_size_bytes bigint,
   transcript_text text,
   summary text,
   minutes text,
@@ -17,6 +19,12 @@ on transcripts (created_at desc);
 
 create index if not exists transcripts_status_idx
 on transcripts (status);
+
+alter table transcripts
+add column if not exists storage_path text;
+
+alter table transcripts
+add column if not exists file_size_bytes bigint;
 
 create or replace function set_updated_at()
 returns trigger as $$

@@ -5,6 +5,8 @@ export type Transcript = {
   title: string | null;
   original_file_name: string | null;
   original_file_url: string | null;
+  storage_path: string | null;
+  file_size_bytes: number | null;
   transcript_text: string | null;
   summary: string | null;
   minutes: string | null;

@@ -13,6 +13,9 @@ export const ACCEPTED_AUDIO_MIME_TYPES = [
   "video/webm",
 ];
 
+export const MAX_UPLOAD_SIZE_BYTES = 3 * 1024 * 1024 * 1024;
+export const OPENAI_AUDIO_FILE_LIMIT_BYTES = 25 * 1024 * 1024;
+
 export function isSupportedAudioFile(fileName: string, mimeType?: string) {
   const extension = fileName.split(".").pop()?.toLowerCase();
   const extensionOk = Boolean(extension && ACCEPTED_AUDIO_EXTENSIONS.includes(extension as (typeof ACCEPTED_AUDIO_EXTENSIONS)[number]));
@@ -28,4 +31,10 @@ export function safeFileName(fileName: string) {
 
 export function titleFromFileName(fileName: string) {
   return fileName.replace(/\.[^/.]+$/, "").trim() || "無題の録音";
+}
+
+export function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

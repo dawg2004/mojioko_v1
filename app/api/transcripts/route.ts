@@ -46,6 +46,8 @@ export async function POST(request: Request) {
       title,
       original_file_name: file.name,
       original_file_url: publicUrlData.publicUrl,
+      storage_path: storagePath,
+      file_size_bytes: file.size,
       status: "uploaded",
     });
 
