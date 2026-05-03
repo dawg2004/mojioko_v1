@@ -109,7 +109,7 @@ https://vercel.com/dawg2004s-projects/mojioko-v1
 
 1. GitHubリポジトリ `https://github.com/dawg2004/mojioko_v1` をVercelプロジェクトに接続します。
 2. Vercel Project Settings の Environment Variables に `.env.local.example` と同じキーを設定します。
-3. Build Command は `npm run build`、Install Command は `npm install` のままで動作します。
+3. Build Command は `npm run build`、Install Command は `npm install`、Output Directory は `.next` で動作します。リポジトリの `vercel.json` でも同じ設定を明示しています。
 4. デプロイ後、SupabaseのURLとStorage bucket設定を確認します。
 
 音声が長い場合、Vercel Functionの実行時間制限に達する可能性があります。MVPでは同期処理ですが、本番運用ではキュー、Webhook、Supabase Edge Functions、またはバックグラウンドジョブへの分離を推奨します。
