@@ -11,9 +11,8 @@ type SignUploadRequest = {
 };
 
 export async function POST(request: Request) {
-  const supabase = getServerSupabase();
-
   try {
+    const supabase = getServerSupabase();
     const body = (await request.json()) as SignUploadRequest;
     const fileName = body.fileName?.trim();
     const fileType = body.fileType?.trim() || "application/octet-stream";

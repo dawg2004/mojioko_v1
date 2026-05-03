@@ -64,7 +64,7 @@ export function UploadDropzone() {
           fileSize: file.size,
         }),
       });
-      const uploadConfig = (await signed.json()) as {
+      const uploadConfig = (await readJsonResponse(signed)) as {
         transcriptId?: string;
         storagePath?: string;
         token?: string;
@@ -89,7 +89,7 @@ export function UploadDropzone() {
       if (file.size <= OPENAI_AUDIO_FILE_LIMIT_BYTES) {
         setMessage("アップロード完了。文字起こしと要約を実行しています。");
         const processResponse = await fetch(`/api/transcripts/${uploadConfig.transcriptId}/process`, { method: "POST" });
-        const processResult = (await processResponse.json()) as { error?: string };
+        const processResult = (await readJsonResponse(processResponse)) as { error?: string };
         if (!processResponse.ok) {
           throw new Error(processResult.error ?? "文字起こし処理に失敗しました。");
         }
@@ -175,6 +175,19 @@ export function UploadDropzone() {
       </button>
     </div>
   );
+}
+
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    return { error: `サーバーから空のレスポンスが返りました。HTTP ${response.status}` };
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return { error: `サーバーからJSONではないレスポンスが返りました。HTTP ${response.status}` };
+  }
 }
 
 function uploadWithTus(

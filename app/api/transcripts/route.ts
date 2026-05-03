@@ -7,9 +7,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
-  const supabase = getServerSupabase();
-
   try {
+    const supabase = getServerSupabase();
     const formData = await request.formData();
     const file = formData.get("file");
 

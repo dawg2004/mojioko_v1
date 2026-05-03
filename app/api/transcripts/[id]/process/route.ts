@@ -12,9 +12,9 @@ type RouteProps = {
 
 export async function POST(_request: Request, { params }: RouteProps) {
   const { id } = await params;
-  const supabase = getServerSupabase();
 
   try {
+    const supabase = getServerSupabase();
     const { data, error } = await supabase
       .from("transcripts")
       .select("id,storage_path,original_file_name,file_size_bytes")
