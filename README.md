@@ -15,7 +15,7 @@ PLAUD録音ファイルをアップロードして、AIで文字起こし・要�
 ## MVP機能
 
 - mp3 / m4a / wav / mp4 / webm のアップロード
-- Supabase TUS resumable upload による最大3GBの大容量アップロード
+- Supabase TUS resumable upload による大容量アップロード
 - ドラッグ&ドロップまたはファイル選択
 - Supabase Storage `audio-files` bucket への保存
 - `transcripts` テーブルへの履歴保存
@@ -43,6 +43,7 @@ OPENAI_API_KEY=
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES=
 ```
 
 `SUPABASE_SERVICE_ROLE_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
@@ -61,7 +62,7 @@ Supabase Dashboardで Storage bucket を作成します。
 - Public bucket: 詳細ページから元音声を開きたい場合はON
 - File size limit: `3GB` 以上
 
-3GBの録音ファイルを扱う場合、SupabaseプロジェクトはPro以上を推奨します。FreeプランのStorage上限では3GBファイルを保存できません。
+3GBの録音ファイルを扱う場合、SupabaseプロジェクトはPro以上が必要です。FreeプランのStorage上限では3GBファイルを保存できません。Freeプランで動かす場合は、Vercelの `NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES` を `52428800` に設定してください。Pro以上に変更した後は `3221225472` に変更して再デプロイすると3GB表示になります。
 
 Private bucketで運用する場合は、詳細ページの元音声リンクを署名付きURLに変更してください。
 

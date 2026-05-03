@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AUDIO_BUCKET, getServerSupabase } from "@/lib/supabase/server";
-import { isSupportedAudioFile, MAX_UPLOAD_SIZE_BYTES, safeFileName, titleFromFileName } from "@/lib/files";
+import { formatBytes, isSupportedAudioFile, MAX_UPLOAD_SIZE_BYTES, safeFileName, titleFromFileName } from "@/lib/files";
 
 export const runtime = "nodejs";
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     }
 
     if (fileSize > MAX_UPLOAD_SIZE_BYTES) {
-      return NextResponse.json({ error: "3GB以下の音声ファイルを選択してください。" }, { status: 400 });
+      return NextResponse.json({ error: `${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下の音声ファイルを選択してください。` }, { status: 400 });
     }
 
     const transcriptId = crypto.randomUUID();

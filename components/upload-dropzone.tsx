@@ -4,7 +4,14 @@ import { ChangeEvent, DragEvent, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import * as tus from "tus-js-client";
 import { AlertCircle, CheckCircle2, FileAudio2, Loader2, UploadCloud } from "lucide-react";
-import { ACCEPTED_AUDIO_EXTENSIONS, formatBytes, isSupportedAudioFile, MAX_UPLOAD_SIZE_BYTES, OPENAI_AUDIO_FILE_LIMIT_BYTES } from "@/lib/files";
+import {
+  ACCEPTED_AUDIO_EXTENSIONS,
+  formatBytes,
+  isSupportedAudioFile,
+  MAX_UPLOAD_SIZE_BYTES,
+  OPENAI_AUDIO_FILE_LIMIT_BYTES,
+  TARGET_UPLOAD_SIZE_BYTES,
+} from "@/lib/files";
 
 type UploadState = "idle" | "ready" | "uploading" | "success" | "error";
 
@@ -34,7 +41,7 @@ export function UploadDropzone() {
     if (nextFile.size > MAX_UPLOAD_SIZE_BYTES) {
       setFile(null);
       setState("error");
-      setMessage(`3GB以下の音声ファイルを選択してください。選択中: ${formatBytes(nextFile.size)}`);
+      setMessage(`${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下の音声ファイルを選択してください。選択中: ${formatBytes(nextFile.size)}`);
       return;
     }
 
@@ -102,7 +109,7 @@ export function UploadDropzone() {
       router.refresh();
     } catch (error) {
       setState("error");
-      setMessage(error instanceof Error ? error.message : "アップロードに失敗しました。");
+      setMessage(formatUploadError(error));
     }
   }
 
@@ -154,7 +161,12 @@ export function UploadDropzone() {
             )}
           </div>
           <p className="mt-4 text-base font-semibold">{message}</p>
-          <p className="mt-2 text-sm text-ink/60">対応形式: mp3 / m4a / wav / mp4 / webm、最大3GB</p>
+          <p className="mt-2 text-sm text-ink/60">
+            対応形式: mp3 / m4a / wav / mp4 / webm、最大{formatBytes(MAX_UPLOAD_SIZE_BYTES)}
+          </p>
+          {MAX_UPLOAD_SIZE_BYTES < TARGET_UPLOAD_SIZE_BYTES ? (
+            <p className="mt-2 text-xs text-coral">3GB対応にはSupabase Pro以上とStorage上限設定が必要です。</p>
+          ) : null}
           {state === "uploading" ? (
             <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-white">
               <div className="h-full rounded-full bg-leaf transition-all" style={{ width: `${progress}%` }} />
@@ -188,6 +200,16 @@ async function readJsonResponse(response: Response) {
   } catch {
     return { error: `サーバーからJSONではないレスポンスが返りました。HTTP ${response.status}` };
   }
+}
+
+function formatUploadError(error: unknown) {
+  const message = error instanceof Error ? error.message : "アップロードに失敗しました。";
+
+  if (message.includes("413") || message.toLowerCase().includes("maximum size exceeded")) {
+    return `Supabase Storageの現在上限を超えています。${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下にするか、SupabaseをPro以上にしてStorage上限を3GB以上に設定してください。`;
+  }
+
+  return message;
 }
 
 function uploadWithTus(
