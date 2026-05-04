@@ -166,6 +166,12 @@ https://vercel.com/dawg2004s-projects/mojioko-v1
 
 25MB以下の音声は同期処理で文字起こしします。25MB超の長時間音声は、Google Drive上のファイルをバックグラウンドワーカーで分割処理する構成を推奨します。
 
+## 実装計画ドキュメント
+
+3GB音声の分割文字起こしパイプライン実装計画は以下を参照してください。
+
+- `docs/large-file-transcription-plan.md`
+
 ## 今後の追加予定
 
 - 話者分離
