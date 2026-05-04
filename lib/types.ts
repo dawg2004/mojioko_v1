@@ -1,4 +1,4 @@
-export type TranscriptStatus = "uploaded" | "transcribing" | "summarizing" | "completed" | "failed";
+export type TranscriptStatus = "uploaded" | "queued" | "transcribing" | "summarizing" | "completed" | "failed";
 
 export type Transcript = {
   id: string;

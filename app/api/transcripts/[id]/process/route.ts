@@ -35,7 +35,7 @@ export async function POST(request: Request, { params }: RouteProps) {
     }
 
     if (Number(transcript.file_size_bytes ?? 0) > OPENAI_AUDIO_FILE_LIMIT_BYTES) {
-      await updateNotionTranscript(id, { status: "uploaded" });
+      await updateNotionTranscript(id, { status: "queued" });
       return NextResponse.json(
         {
           skipped: true,

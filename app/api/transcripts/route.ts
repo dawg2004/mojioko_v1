@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createNotionTranscript, listNotionTranscripts } from "@/lib/notion/transcripts";
-import { isSupportedAudioFile, MAX_UPLOAD_SIZE_BYTES, formatBytes, titleFromFileName } from "@/lib/files";
+import { isSupportedAudioFile, MAX_UPLOAD_SIZE_BYTES, OPENAI_AUDIO_FILE_LIMIT_BYTES, formatBytes, titleFromFileName } from "@/lib/files";
 
 export const runtime = "nodejs";
 
@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       driveFileId,
       driveFileUrl,
       fileSizeBytes,
+      status: fileSizeBytes > OPENAI_AUDIO_FILE_LIMIT_BYTES ? "queued" : "uploaded",
     });
 
     return NextResponse.json({ transcript });
