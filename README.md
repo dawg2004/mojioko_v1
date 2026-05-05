@@ -50,6 +50,16 @@ NOTION_DATABASE_ID=
 
 `NOTION_TOKEN` と `OPENAI_API_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
 
+## Google認証トラブルシューティング
+
+Googleログイン時に `Storagerelay URI is not allowed for 'NATIVE_DESKTOP' client type.` や `invalid_request` が出る場合は、OAuth Client IDの種類が `Desktop app` になっている可能性があります。
+
+- Google Cloud Consoleで **Web application** のOAuth Client IDを作成
+- Authorized JavaScript originsに以下を追加
+  - `http://localhost:3000`
+  - `https://mojioko-v1.vercel.app`
+- そのClient IDを `NEXT_PUBLIC_GOOGLE_CLIENT_ID` に設定
+
 ## Google Drive設定
 
 3GB音声ファイルはGoogle Driveに保存します。

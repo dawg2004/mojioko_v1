@@ -366,12 +366,17 @@ async function readJsonResponse(response: Response) {
 
 function formatUploadError(error: unknown) {
   const message = error instanceof Error ? error.message : "アップロードに失敗しました。";
+  const lower = message.toLowerCase();
+
+  if (lower.includes("storagerelay") || lower.includes("native_desktop") || lower.includes("invalid_request")) {
+    return "Google OAuth Client IDの種類が不正です。Google Cloud Consoleで『Web application』のClient IDを作成し、NEXT_PUBLIC_GOOGLE_CLIENT_IDに設定してください。";
+  }
 
   if (message.includes("403")) {
     return "Google Driveへの権限が不足しています。Drive APIが有効か、OAuthスコープを確認してください。";
   }
 
-  if (message.includes("413") || message.toLowerCase().includes("maximum size exceeded")) {
+  if (message.includes("413") || lower.includes("maximum size exceeded")) {
     return `アップロード上限を超えています。${formatBytes(MAX_UPLOAD_SIZE_BYTES)}以下のファイルを選択してください。`;
   }
 
