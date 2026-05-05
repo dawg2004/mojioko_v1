@@ -372,6 +372,11 @@ function formatUploadError(error: unknown) {
     return "Google OAuth Client IDの種類が不正です。Google Cloud Consoleで『Web application』のClient IDを作成し、NEXT_PUBLIC_GOOGLE_CLIENT_IDに設定してください。";
   }
 
+  if (lower.includes("no registered origin") || lower.includes("invalid_client") || lower.includes("401")) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "(unknown origin)";
+    return `Google OAuth設定エラーです。Authorized JavaScript originsに ${origin} を追加し、Web applicationのClient IDをNEXT_PUBLIC_GOOGLE_CLIENT_IDへ設定してください。`;
+  }
+
   if (message.includes("403")) {
     return "Google Driveへの権限が不足しています。Drive APIが有効か、OAuthスコープを確認してください。";
   }

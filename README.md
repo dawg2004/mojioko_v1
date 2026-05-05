@@ -54,6 +54,8 @@ NOTION_DATABASE_ID=
 
 Googleログイン時に `Storagerelay URI is not allowed for 'NATIVE_DESKTOP' client type.` や `invalid_request` が出る場合は、OAuth Client IDの種類が `Desktop app` になっている可能性があります。
 
+`no registered origin` / `Error 401: invalid_client` の場合は、現在アクセス中のURL（例: `http://localhost:3000` や `https://mojioko-v1.vercel.app`）が Authorized JavaScript origins に未登録です。
+
 - Google Cloud Consoleで **Web application** のOAuth Client IDを作成
 - Authorized JavaScript originsに以下を追加
   - `http://localhost:3000`
