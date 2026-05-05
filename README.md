@@ -50,6 +50,18 @@ NOTION_DATABASE_ID=
 
 `NOTION_TOKEN` と `OPENAI_API_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
 
+## Google認証トラブルシューティング
+
+Googleログイン時に `Storagerelay URI is not allowed for 'NATIVE_DESKTOP' client type.` や `invalid_request` が出る場合は、OAuth Client IDの種類が `Desktop app` になっている可能性があります。
+
+`no registered origin` / `Error 401: invalid_client` の場合は、現在アクセス中のURL（例: `http://localhost:3000` や `https://mojioko-v1.vercel.app`）が Authorized JavaScript origins に未登録です。
+
+- Google Cloud Consoleで **Web application** のOAuth Client IDを作成
+- Authorized JavaScript originsに以下を追加
+  - `http://localhost:3000`
+  - `https://mojioko-v1.vercel.app`
+- そのClient IDを `NEXT_PUBLIC_GOOGLE_CLIENT_ID` に設定
+
 ## Google Drive設定
 
 3GB音声ファイルはGoogle Driveに保存します。
@@ -165,6 +177,12 @@ https://vercel.com/dawg2004s-projects/mojioko-v1
 4. デプロイ後、Google Drive OAuthとNotion Databaseの設定を確認します。
 
 25MB以下の音声は同期処理で文字起こしします。25MB超の長時間音声は、Google Drive上のファイルをバックグラウンドワーカーで分割処理する構成を推奨します。
+
+## 実装計画ドキュメント
+
+3GB音声の分割文字起こしパイプライン実装計画は以下を参照してください。
+
+- `docs/large-file-transcription-plan.md`
 
 ## 今後の追加予定
 

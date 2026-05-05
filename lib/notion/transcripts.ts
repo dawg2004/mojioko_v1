@@ -20,6 +20,7 @@ type CreateTranscriptInput = {
   driveFileId: string;
   driveFileUrl: string;
   fileSizeBytes: number;
+  status?: TranscriptStatus;
 };
 
 type UpdateTranscriptInput = Partial<{
@@ -85,7 +86,7 @@ export async function createNotionTranscript(input: CreateTranscriptInput): Prom
     parent: { data_source_id: dataSourceId },
     properties: {
       [titleProperty]: titlePropertyValue(input.title),
-      [PROPERTY_NAMES.status]: selectValue("uploaded"),
+      [PROPERTY_NAMES.status]: selectValue(input.status ?? "uploaded"),
       [PROPERTY_NAMES.originalFileName]: richTextValue(input.originalFileName),
       [PROPERTY_NAMES.driveFileId]: richTextValue(input.driveFileId),
       [PROPERTY_NAMES.driveFileUrl]: urlValue(input.driveFileUrl),
@@ -162,6 +163,7 @@ async function ensureTranscriptDatabaseSchema(notion: Client, dataSourceId: stri
       select: {
         options: [
           { name: "uploaded", color: "blue" },
+          { name: "queued", color: "gray" },
           { name: "transcribing", color: "yellow" },
           { name: "summarizing", color: "purple" },
           { name: "completed", color: "green" },
