@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { generateNotes, transcribeAudio } from "@/lib/openai/transcription";
-import { OPENAI_AUDIO_FILE_LIMIT_BYTES, formatBytes } from "@/lib/files";
 import { getNotionTranscript, updateNotionTranscript } from "@/lib/notion/transcripts";
 
 export const runtime = "nodejs";
@@ -32,17 +31,6 @@ export async function POST(request: Request, { params }: RouteProps) {
 
     if (!transcript.storage_path || !transcript.original_file_name) {
       return NextResponse.json({ error: "Google Driveファイル情報が不足しています。" }, { status: 400 });
-    }
-
-    if (Number(transcript.file_size_bytes ?? 0) > OPENAI_AUDIO_FILE_LIMIT_BYTES) {
-      await updateNotionTranscript(id, { status: "uploaded" });
-      return NextResponse.json(
-        {
-          skipped: true,
-          message: `${formatBytes(Number(transcript.file_size_bytes))} のファイルはOpenAI Audio APIの1回25MB制限を超えるため、分割処理ワーカーが必要です。`,
-        },
-        { status: 202 },
-      );
     }
 
     await updateNotionTranscript(id, { status: "transcribing" });

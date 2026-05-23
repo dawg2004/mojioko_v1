@@ -1,18 +1,29 @@
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
 import OpenAI from "openai";
 import type { GeneratedNotes } from "@/lib/types";
 
-const TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 const SUMMARY_MODEL = "gpt-4o-mini";
 
 export async function transcribeAudio(file: File) {
-  const openai = getOpenAI();
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: TRANSCRIPTION_MODEL,
-    language: "ja",
-  });
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), "mojioko-whisper-"));
+  const audioPath = path.join(tmpDir, file.name || "audio.webm");
+  const outputDir = path.join(tmpDir, "output");
 
-  return transcription.text;
+  try {
+    await writeFile(audioPath, buffer);
+    await runWhisper(audioPath, outputDir);
+
+    const stem = path.parse(audioPath).name;
+    const transcriptPath = path.join(outputDir, `${stem}.txt`);
+    const transcript = await readFile(transcriptPath, "utf-8");
+    return transcript.trim();
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
 }
 
 export async function generateNotes(transcriptText: string): Promise<GeneratedNotes> {
@@ -53,6 +64,66 @@ export async function generateNotes(transcriptText: string): Promise<GeneratedNo
     minutes: normalizeText(parsed.minutes, "議事録を生成できませんでした。"),
     todos: normalizeText(parsed.todos, "TODOを生成できませんでした。"),
   };
+}
+
+async function runWhisper(audioPath: string, outputDir: string) {
+  const whisperCommand = process.env.WHISPER_COMMAND?.trim() || "python3 -m whisper";
+  const whisperModel = process.env.WHISPER_MODEL?.trim() || "small";
+  const whisperLanguage = process.env.WHISPER_LANGUAGE?.trim() || "ja";
+  const extraArgs = splitArgs(process.env.WHISPER_EXTRA_ARGS);
+
+  const commandArgs = splitArgs(whisperCommand);
+  if (commandArgs.length === 0) {
+    throw new Error("WHISPER_COMMAND is empty.");
+  }
+
+  const [bin, ...baseArgs] = commandArgs;
+  const args = [
+    ...baseArgs,
+    audioPath,
+    "--model",
+    whisperModel,
+    "--language",
+    whisperLanguage,
+    "--output_dir",
+    outputDir,
+    "--output_format",
+    "txt",
+    ...extraArgs,
+  ];
+
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(bin, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: process.env,
+    });
+
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Whisper command failed to start: ${error.message}`));
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+
+      reject(new Error(`Whisper command exited with code ${code}. ${stderr.trim()}`.trim()));
+    });
+  });
+}
+
+function splitArgs(value?: string) {
+  if (!value) return [];
+  return value
+    .split(/\s+/)
+    .map((arg) => arg.trim())
+    .filter(Boolean);
 }
 
 function getOpenAI() {

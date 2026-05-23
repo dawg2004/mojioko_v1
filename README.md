@@ -10,7 +10,7 @@ PLAUD録音ファイルをアップロードして、AIで文字起こし・要�
 - Google Drive API
 - Google Identity Services
 - Notion API
-- OpenAI Audio API / GPT
+- openai/whisper (self-host) / GPT
 - Vercel
 
 ## MVP機能
@@ -20,7 +20,7 @@ PLAUD録音ファイルをアップロードして、AIで文字起こし・要�
 - ドラッグ&ドロップまたはファイル選択
 - Google Driveへの音声保存
 - Notion Databaseへの履歴保存
-- 25MB以下の音声はOpenAI `gpt-4o-mini-transcribe` による文字起こし
+- サーバー上の `openai/whisper` による文字起こし（サイズ制限はサーバー資源依存）
 - GPTによる日本語の要約・議事録・TODO抽出
 - `/transcripts` の履歴一覧
 - `/transcripts/[id]` の詳細表示、タブ切り替え、コピー、元音声リンク
@@ -41,6 +41,10 @@ npm run dev
 
 ```bash
 OPENAI_API_KEY=
+WHISPER_COMMAND=python3 -m whisper
+WHISPER_MODEL=small
+WHISPER_LANGUAGE=ja
+WHISPER_EXTRA_ARGS=
 NEXT_PUBLIC_GOOGLE_CLIENT_ID=
 NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID=
 NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES=3221225472
@@ -48,7 +52,7 @@ NOTION_TOKEN=
 NOTION_DATABASE_ID=
 ```
 
-`NOTION_TOKEN` と `OPENAI_API_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
+`NOTION_TOKEN` / `OPENAI_API_KEY` / `WHISPER_*` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
 
 ## Google Drive設定
 
@@ -92,18 +96,18 @@ Google Driveは通常ファイルを最大5TBまで保存できます。Drive AP
 
 Supabase Storage / Databaseは現在の本線から外しました。過去のMVP SQLは `supabase/transcripts.sql` に残しています。
 
-## 大容量ファイルの処理方針
+## 自前Whisper運用メモ
 
 Vercel Functionはリクエスト本文サイズの上限があるため、音声ファイルはNext.js APIを経由せず、ブラウザからGoogle Driveへresumable uploadで直接送信します。
 
-OpenAI Audio APIは1回の音声ファイルアップロードが25MBまでのため、25MBを超える録音はアップロード後に `uploaded` のまま保存されます。3時間公演などの大容量音声を文字起こしするには、別途ワーカーで以下の処理を追加してください。
+文字起こしはサーバー上で `openai/whisper` を実行します。大容量ファイルも処理できますが、実際の上限はサーバーのCPU/GPU・メモリ・タイムアウト設定に依存します。
 
-1. Google Driveから音声を取得
-2. ffmpegで音声を圧縮または25MB未満のチャンクへ分割
-3. 各チャンクをOpenAI Audio APIで文字起こし
-4. チャンク結果を結合
-5. 要約・議事録・TODOを生成
-6. Notionページを `completed` に更新
+1. サーバーに Python と ffmpeg をインストール
+2. `pip install -U openai-whisper` を実行
+3. 初回起動時に `WHISPER_MODEL` の重みを自動ダウンロード
+4. 必要に応じて `WHISPER_COMMAND` / `WHISPER_EXTRA_ARGS` でGPU設定やデコードパラメータを調整
+
+> 注意: Vercel Serverless Functions では長尺音声やWhisper重みの常駐に不向きです。自前ホスト（VM / Docker / GPUサーバー）での運用を推奨します。
 
 ### 旧Database SQL
 
@@ -164,7 +168,7 @@ https://vercel.com/dawg2004s-projects/mojioko-v1
 3. Build Command は `npm run build`、Install Command は `npm install`、Output Directory は `.next` で動作します。リポジトリの `vercel.json` でも同じ設定を明示しています。
 4. デプロイ後、Google Drive OAuthとNotion Databaseの設定を確認します。
 
-25MB以下の音声は同期処理で文字起こしします。25MB超の長時間音声は、Google Drive上のファイルをバックグラウンドワーカーで分割処理する構成を推奨します。
+音声は同期処理でWhisper文字起こしします。長時間音声は処理時間が長くなるため、バックグラウンドワーカー化やジョブキュー導入を推奨します。
 
 ## 今後の追加予定
 
