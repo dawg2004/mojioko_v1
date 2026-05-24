@@ -19,6 +19,7 @@ PLAUD録音ファイルをアップロードして、AIで文字起こし・要�
 - Google Drive resumable upload による最大3GBの大容量アップロード
 - ドラッグ&ドロップまたはファイル選択
 - Google Driveへの音声保存
+- PLAUD CLI経由の録音一覧参照・音声URL取り込み
 - Notion Databaseへの履歴保存
 - 25MB以下の音声はOpenAI `gpt-4o-mini-transcribe` による文字起こし
 - GPTによる日本語の要約・議事録・TODO抽出
@@ -46,9 +47,12 @@ NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID=
 NEXT_PUBLIC_MAX_UPLOAD_SIZE_BYTES=3221225472
 NOTION_TOKEN=
 NOTION_DATABASE_ID=
+PLAUD_CLI_BIN=plaud
 ```
 
 `NOTION_TOKEN` と `OPENAI_API_KEY` はサーバー側APIでのみ使用します。ブラウザに露出しないよう、`NEXT_PUBLIC_` を付けないでください。
+
+`PLAUD_CLI_BIN` は任意です。`plaud` コマンドが通常PATHにある場合は未設定で動きます。
 
 ## Google Drive設定
 
@@ -65,6 +69,26 @@ NOTION_DATABASE_ID=
 7. 保存先フォルダを固定したい場合はGoogle DriveフォルダIDを `NEXT_PUBLIC_GOOGLE_DRIVE_FOLDER_ID` に設定します。
 
 Google Driveは通常ファイルを最大5TBまで保存できます。Drive APIのresumable uploadを使うため、Vercel Functionのリクエストサイズ制限を回避できます。
+
+## PLAUD CLI設定
+
+PLAUD公式CLIから、自分のPLAUD録音一覧と24時間有効な音声ダウンロードURLを取得できます。
+
+```bash
+npm install -g @plaud-ai/cli
+plaud login
+plaud files
+```
+
+mojiokoの「PLAUDから取り込み」は、Next.jsサーバー側で以下を実行します。
+
+- `plaud files --page-size 20`
+- `plaud file <id>`
+- `plaud audio <id>`
+
+`plaud audio <id>` が返すURLは24時間有効です。25MB以下の音声はその場でOpenAI Audio APIへ渡して文字起こし・要約まで実行します。25MB超の音声はNotionに履歴として保存し、分割処理ワーカーの対象にします。
+
+注意: Vercel Serverless本番では `plaud login` の対話ログイン状態を安定保持できません。PLAUD CLI経由取り込みは、まずローカル実行または永続ディスクを持つ自己ホスト環境向けです。本番Webアプリに完全統合する場合は、PLAUD Developer Platformの公式API/OAuthアクセスへ切り替えてください。
 
 ## Notion設定
 

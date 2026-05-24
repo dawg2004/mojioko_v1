@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, ListChecks } from "lucide-react";
 import { UploadDropzone } from "@/components/upload-dropzone";
+import { PlaudImportPanel } from "@/components/plaud-import-panel";
 
 export default function Home() {
   return (
@@ -29,8 +30,9 @@ export default function Home() {
             </Link>
           </div>
         </div>
-        <div id="upload" className="scroll-mt-8">
+        <div id="upload" className="grid scroll-mt-8 gap-4">
           <UploadDropzone />
+          <PlaudImportPanel />
         </div>
       </section>
     </main>
